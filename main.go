@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"regexp"
 	"time"
 
 	"github.com/aws/aws-lambda-go/events"
@@ -23,6 +24,7 @@ import (
 
 var sess *session.Session
 var svc *s3.S3
+var re *regexp.Regexp
 
 type Stream struct {
 	Stream map[string]string `json:"stream"`
@@ -31,6 +33,21 @@ type Stream struct {
 
 type Payload struct {
 	Streams []Stream `json:"streams"`
+}
+
+func parseS3log(msg []byte) (string, error) {
+	match := re.FindSubmatch(msg)
+	result := make(map[string]string)
+	for i, name := range re.SubexpNames() {
+		if i != 0 && name != "" {
+			result[name] = string(match[i])
+		}
+	}
+	j, err := json.Marshal(result)
+	if err != nil {
+		return "", err
+	}
+	return string(j), nil
 }
 
 func sendToLoki(entries [][]string) error {
@@ -113,7 +130,11 @@ func handler(ctx context.Context, event events.S3Event) (interface{}, error) {
 			} else if err != nil {
 				log.Fatal(err)
 			}
-			e := []string{fmt.Sprint(time.Now().UnixNano()), string(line)}
+			parsed, err := parseS3log(line)
+			if err != nil {
+				log.Fatal(err)
+			}
+			e := []string{fmt.Sprint(time.Now().UnixNano()), parsed}
 			entries = append(entries, e)
 		}
 		r.Close()
@@ -132,6 +153,7 @@ func handler(ctx context.Context, event events.S3Event) (interface{}, error) {
 }
 
 func init() {
+	re = regexp.MustCompile(`^(?P<bucket_owner>\S+) (?P<bucket_name>\S+) (?P<time_stamp>\[.*\]) (?P<remote_addr>\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}) (?P<requester>\S+) (?P<request_id>\S+) (?P<operation>\S+) (?P<key>\S+) (?P<request_uri>\".*\") (?P<http_status>\S+) (?P<error_code>\S+) (?P<byte_sent>\S+) (?P<object_size>\S+) (?P<total_time>\S+) (?P<turn_around_time>\S+) (?P<referrer>\".*\") (?P<user_agent>\".*\") (?P<version_id>\S+) (?P<host_id>\S+) (?P<sign_version>\S+) (?P<sign_suite>\S+) (?P<auth_type>\S+) (?P<host_header>\S+) (?P<tls_version>\S+) (?P<arn>\S+)`)
 	genSession()
 }
 
