@@ -37,10 +37,30 @@ type Payload struct {
 
 func parseS3log(msg []byte) (string, error) {
 	match := re.FindSubmatch(msg)
-	result := make(map[string]string)
+	result := make(map[string]interface{})
 	for i, name := range re.SubexpNames() {
 		if i != 0 && name != "" {
-			result[name] = string(match[i])
+			if name == "time_stamp" {
+				t, err := time.Parse("[02/Jan/2006:15:04:05 -0700]", string(match[i]))
+				if err != nil {
+					log.Println(err)
+					result[name] = string(match[i])
+				} else {
+					result[name] = map[string]interface{}{
+						"raw":      string(match[i]),
+						"datetime": t.Format(time.RFC3339Nano),
+						"year":     t.Year(),
+						"month":    t.Month(),
+						"day":      t.Day(),
+						"hour":     t.Hour(),
+						"minute":   t.Minute(),
+						"tz":       t.Format("-0700"),
+						"unixtime": t.Unix(),
+					}
+				}
+			} else {
+				result[name] = string(match[i])
+			}
 		}
 	}
 	j, err := json.Marshal(result)
