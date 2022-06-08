@@ -4,11 +4,13 @@ import (
 	"fmt"
 	"testing"
 	"time"
+
+	"github.com/grafana/loki/pkg/logproto"
 )
 
 func Test_sendToLoki(t *testing.T) {
-	entry := []string{fmt.Sprint(time.Now().UnixNano()), "test dayo-"}
-	entries := [][]string{entry}
+	entry := logproto.Entry{Timestamp: time.Now(), Line: "test dayo-"}
+	entries := []logproto.Entry{entry}
 	err := sendToLoki(entries)
 	if err != nil {
 		t.Error(err)

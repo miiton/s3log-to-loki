@@ -5,12 +5,13 @@ go 1.18
 require (
 	github.com/aws/aws-lambda-go v1.32.0
 	github.com/aws/aws-sdk-go v1.44.27
+	github.com/gogo/protobuf v1.3.1
+	github.com/golang/snappy v0.0.1
 	github.com/grafana/loki v1.6.1
 )
 
 require (
 	github.com/cespare/xxhash v1.1.0 // indirect
-	github.com/gogo/protobuf v1.3.1 // indirect
 	github.com/golang/protobuf v1.4.2 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/pkg/errors v0.9.1 // indirect

@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -20,20 +19,14 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
+	"github.com/gogo/protobuf/proto"
+	"github.com/golang/snappy"
+	"github.com/grafana/loki/pkg/logproto"
 )
 
 var sess *session.Session
 var svc *s3.S3
 var re *regexp.Regexp
-
-type Stream struct {
-	Stream map[string]string `json:"stream"`
-	Values [][]string        `json:"values"`
-}
-
-type Payload struct {
-	Streams []Stream `json:"streams"`
-}
 
 func parseS3log(msg []byte) (string, error) {
 	match := re.FindSubmatch(msg)
@@ -70,37 +63,34 @@ func parseS3log(msg []byte) (string, error) {
 	return string(j), nil
 }
 
-func sendToLoki(entries [][]string) error {
-	var streams []Stream
-	s := &Stream{
-		Stream: map[string]string{
-			"source": "s3_access_log",
-			"job":    "lambda",
-			"host":   "lambda",
-		},
-		Values: entries,
+func sendToLoki(entries []logproto.Entry) error {
+	var streams []logproto.Stream
+	stream := &logproto.Stream{
+		Labels:  "{source=\"s3_access_log\", job=\"lambda\", host=\"lambda\"}",
+		Entries: entries,
 	}
-	streams = append(streams, *s)
-	p := &Payload{
+	streams = append(streams, *stream)
+	pushReq := &logproto.PushRequest{
 		Streams: streams,
 	}
-	j, err := json.Marshal(p)
+	buf, err := proto.Marshal(pushReq)
 	if err != nil {
 		log.Println(err)
 		return err
 	}
+	buf = snappy.Encode(nil, buf)
 	u, err := url.Parse(os.Getenv("LOKI_URL"))
 	if err != nil {
 		log.Println(err)
 		return err
 	}
 	u.Path = path.Join(u.Path, "loki", "api", "v1", "push")
-	req, err := http.NewRequest("POST", u.String(), bytes.NewReader(j))
+	req, err := http.NewRequest("POST", u.String(), bytes.NewReader(buf))
 	if err != nil {
 		log.Println(err)
 		return err
 	}
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Type", "application/x-protobuf")
 	req.Header.Set("X-Scope-OrgID", os.Getenv("LOKI_TENANT_ID"))
 
 	client := &http.Client{}
@@ -130,7 +120,7 @@ func genSession() {
 
 func handler(ctx context.Context, event events.S3Event) (interface{}, error) {
 	var err error
-	var entries [][]string
+	var entries []logproto.Entry
 	for _, record := range event.Records {
 		log.Println("process start:", record.S3.Object.Key)
 		obj, err := svc.GetObject(&s3.GetObjectInput{
@@ -154,7 +144,7 @@ func handler(ctx context.Context, event events.S3Event) (interface{}, error) {
 			if err != nil {
 				log.Fatal(err)
 			}
-			e := []string{fmt.Sprint(time.Now().UnixNano()), parsed}
+			e := logproto.Entry{Timestamp: time.Now(), Line: parsed}
 			entries = append(entries, e)
 		}
 		r.Close()
